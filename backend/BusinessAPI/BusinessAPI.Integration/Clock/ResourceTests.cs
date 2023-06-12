@@ -1,78 +1,77 @@
-﻿using Alba;
-using Microsoft.VisualStudio.TestPlatform.TestHost;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿
 
-namespace BusinessAPI.IntegrationTests.Clock
+using Alba;
+using BusinessAPI.Adapters;
+using BusinessAPI.Models;
+using Microsoft.Extensions.DependencyInjection;
+using Moq;
+using System.Net;
+
+namespace BusinessApi.IntegrationTests.Clock;
+public class ResourceTests
 {
-    public class ResourceTests
+
+    [Fact]
+    public async Task GivesMeA200()
     {
-        [Fact]
-        public async Task GivesMeA200()
+        var host = await AlbaHost.For<Program>();
+
+        await host.Scenario(api =>
         {
-            var host = await AlbaHost.For<Program>();
+            api.Get.Url("/clock");
+            api.StatusCodeShouldBeOk();
+        });
+    }
 
+    [Fact]
+    public async Task DuringOpenHours()
+    {
+        var expected = new GetClockResponse(true, null);
 
-            await host.Scenario(api =>
-            {
-                api.Get.Url("/clock");
-                api.StatusCodeShouldBeOk();
-            });
-        }
-
-        [Fact]
-        public async Task DuringOpenHours()
+        var host = await AlbaHost.For<Program>(config =>
         {
-            var expected = new GetClockResponse(true, null);
-
-
-
-            var host = await AlbaHost.For<Program>();
-
-
-
-            var response = await host.Scenario(api =>
+            var systemTime = new Mock<ISystemTime>();
+            systemTime.Setup(c => c.GetCurrentLocalTime()).Returns(new DateTime(2023, 6, 12, 16, 12, 18));
+            config.ConfigureServices(services =>
             {
-                api.Get.Url("/clock");
+                services.AddSingleton<ISystemTime>(systemTime.Object);
             });
+        });
 
-
-
-            var responseMessage = response.ReadAsJson<GetClockResponse>();
-
-
-
-            Assert.Equal(expected, responseMessage);
-        }
-
-        [Fact]
-        public async Task DuringClosedHours()
+        var response = await host.Scenario(api =>
         {
-            // This will fail on saturdays, sundays, before 9 and after 5
-            var expected = new GetClockResponse(false, null);
+            api.Get.Url("/clock");
+        });
 
+        var responseMessage = response.ReadAsJson<GetClockResponse>();
 
+        Assert.Equal(expected, responseMessage);
+    }
+    [Fact]
+    public async Task DuringClosedHours()
+    {
+        // This will fail on saturdays, sundays, before 9 and after 5
+        var expected = new GetClockResponse(false, null);
 
-            var host = await AlbaHost.For<Program>();
-
-
-
-            var response = await host.Scenario(api =>
+        var host = await AlbaHost.For<Program>(config =>
+        {
+            var systemTime = new Mock<ISystemTime>();
+            systemTime.Setup(c => c.GetCurrentLocalTime()).Returns(new DateTime(2023, 6, 12, 17, 00, 00));
+            config.ConfigureServices(services =>
             {
-                api.Get.Url("/clock");
+                services.AddSingleton<ISystemTime>(systemTime.Object);
             });
+        });
 
+        var response = await host.Scenario(api =>
+        {
+            api.Get.Url("/clock");
+        });
 
+        var responseMessage = response.ReadAsJson<GetClockResponse>();
+        Assert.NotNull(responseMessage);
 
-            var responseMessage = response.ReadAsJson<GetClockResponse>();
-
-
-
-            //.Assert.Equal(expected, responseMessage);
-            Assert.False(responseMessage.IsOpen);
-        }
+        //.Assert.Equal(expected, responseMessage);
+        Assert.False(responseMessage.IsOpen);
     }
 }
